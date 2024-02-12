@@ -10,6 +10,7 @@ from model_output import clean_model_output
 from prompt import get_prompt
 from run_code import does_code_pass_tests
 from score import scorer
+from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 
 
@@ -59,11 +60,15 @@ def make_output_dir(args):
     return output_dir
 
 
-def fingerprint(args):
-    args_in_dict = vars(args)
-    path = f"{args.output_dir}/args.jsonl"
+def save_dict(path, my_dict):
     with open(path, "w") as f:
-        json.dump(args_in_dict, f, indent=2)
+        json.dump(my_dict, f, indent=2)
+
+
+def fingerprint(args):
+    args_dict = vars(args)
+    path = f"{args.output_dir}/args.jsonl"
+    save_dict(path, args_dict)
 
 
 def get_eval_dataset():
@@ -93,6 +98,7 @@ def main(args, output_dir, small):
     examples = get_eval_dataset()
     if small:
         examples = {list(examples.keys())[0]: list(examples.values())[0]}
+    save_dict(output_dir + "/01_examples.jsonl", examples)
 
     # Get prompts
     all_prompts = {}
@@ -109,11 +115,12 @@ def main(args, output_dir, small):
             args.with_tags,
         )
         all_prompts[ex_id] = prompt
+    save_dict(output_dir + "/02_prompts.jsonl", all_prompts)
 
     # Model generates a response
     all_generations = {}
     model, tokenizer = setup_inference(args.model_path)
-    for ex_id, prompt in all_prompts.items():
+    for ex_id, prompt in tqdm(all_prompts.items()):
         generations = inference(
             prompt,
             model,
@@ -129,6 +136,7 @@ def main(args, output_dir, small):
             gen_id = "gen" + str(i).zfill(2)
             id_ = ex_id + "_" + gen_id
             all_generations[id_] = generation
+    save_dict(output_dir + "/03_generations.jsonl", all_generations)
 
     # Clean model output
     all_generated_functions = {}
@@ -142,6 +150,7 @@ def main(args, output_dir, small):
             args.model_name,
         )
         all_generated_functions[id_] = generated_function
+    save_dict(output_dir + "/04_generated_functions.jsonl", all_generated_functions)
 
     # See if code passes the tests
     all_pass_tests = {}
@@ -149,8 +158,12 @@ def main(args, output_dir, small):
         ex_id, gen_id = tuple(id_.split("_"))
         pass_tests = does_code_pass_tests(generated_function, examples[ex_id]["test"])
         all_pass_tests[id_] = pass_tests
+    save_dict(output_dir + "/05_pass_tests.jsonl", all_pass_tests)
 
+    # Score the results
     score = scorer(all_pass_tests, args.pass_at_k)
+    score_dict = {f"pass@{args.pass_at_k}": score}
+    save_dict(output_dir + "/06_score.jsonl", score_dict)
 
 
 if __name__ == "__main__":
@@ -159,5 +172,5 @@ if __name__ == "__main__":
     fingerprint(args)
     set_seed(args.seed)
 
-    small = True
+    small = False
     main(args, output_dir, small)
