@@ -32,7 +32,7 @@ def get_args():
     parser.add_argument("--with_tags", action="store_true")
 
     # Generation
-    parser.add_argument("--n_samples", type=int, default=1)
+    parser.add_argument("--n_samples", type=int, default=20)
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--max_length", type=int, default=1800)
     parser.add_argument("--num_beams", type=int, default=5)
@@ -70,27 +70,31 @@ def get_eval_dataset():
         "bigcode/humanevalpack", "python", split="test", trust_remote_code=True
     )
     examples = list(ds.to_pandas().T.to_dict().values())
+    examples = {"ex" + str(i).zfill(2): example for i, example in enumerate(examples)}
 
     # Add docstring to example
     # example['prompt'] includes the docstring nicely formatted + declaration, so just remove declaration
-    new_examples = []
-    for example in examples:
+    new_examples = {}
+    for ex_id, example in examples.items():
         example["docstring"] = example["prompt"][len(example["declaration"]) :]
-        new_examples.append(example)
+        new_examples[ex_id] = example
     examples = new_examples
     return examples
 
 
-def main(args, output_dir, small):
+def main(args, outout_dir, small):
 
-    model, tokenizer = setup_inference(args.model_path)
+    if small:
+        args.max_time = 5
+        args.n_samples = 2
+
     examples = get_eval_dataset()
     if small:
-        examples = [examples[0]]
-        args.max_time = 10
+        examples = {list(examples.keys())[0]: list(examples.values())[0]}
 
-    for example in examples:
-
+    # Get prompts
+    all_prompts = {}
+    for ex_id, example in examples.items():
         prompt = get_prompt(
             example["declaration"],
             example["docstring"],
@@ -102,7 +106,12 @@ def main(args, output_dir, small):
             args.with_tests,
             args.with_tags,
         )
+        all_prompts[ex_id] = prompt
 
+    # Model generates a response
+    all_generations = {}
+    model, tokenizer = setup_inference(args.model_path)
+    for ex_id, prompt in all_prompts.items():
         generations = inference(
             prompt,
             model,
@@ -114,18 +123,27 @@ def main(args, output_dir, small):
             args.top_p,
             args.max_time,
         )
-
         if small:
             generations = [generations[0]]
-        for generation in generations:
+        for i, generation in enumerate(generations):
+            gen_id = "gen" + str(i).zfill(2)
+            id_ = ex_id + "_" + gen_id
+            all_generations[id_] = generation
 
-            generated_function = clean_model_output(
-                generation, prompt, example["declaration"], tokenizer, args.model_name
-            )
+    # Clean model outout
+    for id_, generation in all_generations.items():
+        ex_id, gen_id = tuple(id_.split("_"))
+        generated_function = clean_model_output(
+            generation,
+            prompt,
+            examples[ex_id]["declaration"],
+            tokenizer,
+            args.model_name,
+        )
+        pass_tests = does_code_pass_tests(generated_function, examples[ex_id]["test"])
 
-            pass_tests = does_code_pass_tests(generated_function, example["test"])
-
-    get_score()
+    get_scores()
+    save()
 
 
 if __name__ == "__main__":
@@ -135,5 +153,4 @@ if __name__ == "__main__":
     set_seed(args.seed)
 
     small = True
-    main(args, output_dir, small)
     main(args, output_dir, small)
