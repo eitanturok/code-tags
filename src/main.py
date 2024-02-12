@@ -95,12 +95,16 @@ def main(args, output_dir, small):
         args.max_time = 10
         args.n_samples = 2
 
+    # Getting examples
+    print("Making examples...", end="\t")
     examples = get_eval_dataset()
     if small:
         examples = {list(examples.keys())[0]: list(examples.values())[0]}
     save_dict(output_dir + "/01_examples.jsonl", examples)
+    print("Done.")
 
     # Get prompts
+    print("Making prompts...", end="\t")
     all_prompts = {}
     for ex_id, example in examples.items():
         prompt = get_prompt(
@@ -116,8 +120,10 @@ def main(args, output_dir, small):
         )
         all_prompts[ex_id] = prompt
     save_dict(output_dir + "/02_prompts.jsonl", all_prompts)
+    print("Done.")
 
     # Model generates a response
+    print("Generating model responses...", end="\t")
     all_generations = {}
     model, tokenizer = setup_inference(args.model_path)
     for ex_id, prompt in tqdm(all_prompts.items()):
@@ -137,8 +143,10 @@ def main(args, output_dir, small):
             id_ = ex_id + "_" + gen_id
             all_generations[id_] = generation
     save_dict(output_dir + "/03_generations.jsonl", all_generations)
+    print("Done.")
 
     # Clean model output
+    print("Cleaning model generations...", end="\t")
     all_generated_functions = {}
     for id_, generation in all_generations.items():
         ex_id, gen_id = tuple(id_.split("_"))
@@ -151,19 +159,25 @@ def main(args, output_dir, small):
         )
         all_generated_functions[id_] = generated_function
     save_dict(output_dir + "/04_generated_functions.jsonl", all_generated_functions)
+    print("Done.")
 
     # See if code passes the tests
+    print("Running code on tests...", end="\t")
     all_pass_tests = {}
     for id_, generated_function in all_generated_functions.items():
         ex_id, gen_id = tuple(id_.split("_"))
         pass_tests = does_code_pass_tests(generated_function, examples[ex_id]["test"])
         all_pass_tests[id_] = pass_tests
     save_dict(output_dir + "/05_pass_tests.jsonl", all_pass_tests)
+    print("Done.")
 
     # Score the results
     score = scorer(all_pass_tests, args.pass_at_k)
     score_dict = {f"pass@{args.pass_at_k}": score}
     save_dict(output_dir + "/06_score.jsonl", score_dict)
+    print(f"{args.model_name} pass@{args.pass_at_k}={score}")
+
+    print(f"Results in the directory: {output_dir}.")
 
 
 if __name__ == "__main__":
@@ -172,5 +186,5 @@ if __name__ == "__main__":
     fingerprint(args)
     set_seed(args.seed)
 
-    small = False
+    small = True
     main(args, output_dir, small)
