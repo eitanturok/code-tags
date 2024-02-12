@@ -4,10 +4,12 @@ import os
 from datetime import datetime
 
 from datasets import load_dataset
+from icecream import ic
 from inference import inference, setup_inference
 from model_output import clean_model_output
 from prompt import get_prompt
 from run_code import does_code_pass_tests
+from score import scorer
 from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 
 
@@ -82,10 +84,10 @@ def get_eval_dataset():
     return examples
 
 
-def main(args, outout_dir, small):
+def main(args, output_dir, small):
 
     if small:
-        args.max_time = 5
+        args.max_time = 10
         args.n_samples = 2
 
     examples = get_eval_dataset()
@@ -123,14 +125,13 @@ def main(args, outout_dir, small):
             args.top_p,
             args.max_time,
         )
-        if small:
-            generations = [generations[0]]
         for i, generation in enumerate(generations):
             gen_id = "gen" + str(i).zfill(2)
             id_ = ex_id + "_" + gen_id
             all_generations[id_] = generation
 
-    # Clean model outout
+    # Clean model output
+    all_generated_functions = {}
     for id_, generation in all_generations.items():
         ex_id, gen_id = tuple(id_.split("_"))
         generated_function = clean_model_output(
@@ -140,10 +141,16 @@ def main(args, outout_dir, small):
             tokenizer,
             args.model_name,
         )
-        pass_tests = does_code_pass_tests(generated_function, examples[ex_id]["test"])
+        all_generated_functions[id_] = generated_function
 
-    get_scores()
-    save()
+    # See if code passes the tests
+    all_pass_tests = {}
+    for id_, generated_function in all_generated_functions.items():
+        ex_id, gen_id = tuple(id_.split("_"))
+        pass_tests = does_code_pass_tests(generated_function, examples[ex_id]["test"])
+        all_pass_tests[id_] = pass_tests
+
+    score = scorer(all_pass_tests, args.pass_at_k)
 
 
 if __name__ == "__main__":
