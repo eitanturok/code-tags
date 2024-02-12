@@ -3,8 +3,10 @@ import json
 import os
 from datetime import datetime
 
-import torch
 from datasets import load_dataset
+from inference import inference, setup_inference
+from model_output import clean_model_output
+from prompt import get_prompt
 from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 
 
@@ -78,114 +80,6 @@ def get_eval_dataset():
     return examples
 
 
-def setup_inference(model_path):
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_path,
-        trust_remote_code=True,
-        token="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",
-    )
-    # to be able to tokenize text in batches
-    tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "left"
-
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path, device_map="auto", token="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"
-    )
-
-    model.eval()
-    return model, tokenizer
-
-
-def format_for_model(model_name, user_message, prompt_base, with_tags):
-    tag_str = "<commit_after>" if with_tags else ""
-    if model_name in ["mpt", "starcoder"]:
-        prompt = f"{user_message}{tag_str}\n\n{prompt_base}"
-    elif model_name in ["llama", "codellama"]:
-        system_message = (
-            "You are an expert programmer that helps to review Python code for bugs."
-        )
-        system_prompt = f"<<SYS>>\n{system_message}\n<</SYS>>"
-        prompt = f"{system_prompt}[INST] {user_message}\n[/INST] {tag_str}{prompt_base}"
-    else:
-        prompt = f"{user_message}{tag_str}{prompt_base}"
-    return prompt.strip()
-
-
-def get_prompt(
-    declaration,
-    docstring,
-    buggy_solution,
-    entry_point,
-    tests,
-    model_name,
-    with_docs,
-    with_tests,
-    with_tags,
-):
-
-    # Make prompt_base
-    prompt_base = declaration
-    if with_docs:
-        prompt_base = declaration + docstring
-
-    # Make buggy function
-    buggy_function = prompt_base + buggy_solution
-
-    # Make user_message
-    instruction = f"Fix bugs in {entry_point}."
-    test_str = f"\n{tests}" if with_tests else ""
-    user_message = f"{buggy_function}{test_str}\n{instruction}"
-    if with_tags:
-        user_message = (
-            f"<commit_before>{buggy_function}{test_str}<commit_msg>{instruction}"
-        )
-
-    # Get prompt
-    prompt = format_for_model(model_name, user_message, prompt_base, with_tags)
-    return prompt
-
-
-def inference(
-    prompt,
-    model,
-    tokenizer,
-    n_samples,
-    num_beams,
-    temperature,
-    max_length,
-    top_p,
-    max_time,
-):
-
-    if isinstance(prompt, str):
-        prompt = [prompt]
-    do_sample = True if top_p else False
-
-    # Make n_samples of the prompt
-    prompt *= n_samples
-
-    # Tokenize
-    encoded_inputs = tokenizer(prompt, return_tensors="pt", padding=True).to(
-        model.device
-    )
-
-    with torch.no_grad():
-        encoded_outputs = model.generate(
-            **encoded_inputs,
-            max_length=max_length,
-            eos_token_id=tokenizer.eos_token_id,
-            do_sample=do_sample,
-            temperature=temperature,
-            pad_token_id=tokenizer.eos_token_id,
-            num_beams=num_beams,
-            top_p=top_p,
-            max_time=max_time,
-        )
-    texts = tokenizer.batch_decode(encoded_outputs)
-    return texts
-
-
 def main(args, output_dir, small):
 
     model, tokenizer = setup_inference(args.model_path)
@@ -224,7 +118,9 @@ def main(args, output_dir, small):
             generations = [generations[0]]
         for generation in generations:
 
-            generated_function = process_model_output()
+            generated_function = clean_model_output(
+                generation, prompt, example["declaration"], tokenizer, args.model_name
+            )
 
             pass_tests = eval_code()
 
