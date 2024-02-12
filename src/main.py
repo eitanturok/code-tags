@@ -7,6 +7,7 @@ from datasets import load_dataset
 from inference import inference, setup_inference
 from model_output import clean_model_output
 from prompt import get_prompt
+from run_code import does_code_pass_tests
 from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 
 
@@ -122,7 +123,7 @@ def main(args, output_dir, small):
                 generation, prompt, example["declaration"], tokenizer, args.model_name
             )
 
-            pass_tests = eval_code()
+            pass_tests = does_code_pass_tests(generated_function, example["test"])
 
     get_score()
 
@@ -134,4 +135,5 @@ if __name__ == "__main__":
     set_seed(args.seed)
 
     small = True
+    main(args, output_dir, small)
     main(args, output_dir, small)
