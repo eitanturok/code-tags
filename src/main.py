@@ -3,6 +3,7 @@ import json
 import os
 from datetime import datetime
 
+import pandas as pd
 from datasets import load_dataset
 from icecream import ic
 from inference import inference, setup_inference
@@ -61,8 +62,19 @@ def make_output_dir(args):
 
 
 def save_dict(path, my_dict):
-    with open(path, "w") as f:
-        json.dump(my_dict, f, indent=2)
+    list_of_dicts = []
+    for id_, val in my_dict.items():
+        ex_id = id_.split("_")[0]
+        gen_id = "" if len(id_.split("_")) < 2 else id_.split("_")[1]
+
+        list_of_dicts.append({
+            "ex_id": ex_id,
+            "gen_id": gen_id,
+            "val": val
+        })
+
+    df = pd.DataFrame(list_of_dicts)
+    df.to_json(path, orient="records", lines=True)
 
 
 def fingerprint(args):
@@ -186,5 +198,5 @@ if __name__ == "__main__":
     fingerprint(args)
     set_seed(args.seed)
 
-    small = True
+    small = False
     main(args, output_dir, small)
