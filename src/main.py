@@ -6,13 +6,14 @@ from datetime import datetime
 import pandas as pd
 from datasets import load_dataset
 from icecream import ic
+from tqdm import tqdm
+from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
+
 from inference import inference, setup_inference
 from model_output import clean_model_output
 from prompt import get_prompt
 from run_code import does_code_pass_tests
 from score import scorer
-from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 
 
 def get_args():
@@ -53,10 +54,8 @@ def make_output_dir(args):
     tag_str = "-tag" if args.with_tags else ""
     docstring_str = "-docstring" if args.with_docs else ""
     tests_str = "-test" if args.with_tests else ""
-    output_dir = os.path.join(
-        args.output_dir,
-        f"{args.model_name}{tag_str}{docstring_str}{tests_str}",
-    )
+    path_suffix = f"{args.model_name}{tag_str}{docstring_str}{tests_str}"
+    output_dir = f"{args.output_dir}-{path_suffix}"
     os.makedirs(output_dir, exist_ok=True)
     return output_dir
 
@@ -77,10 +76,13 @@ def save_dict(path, my_dict):
     df.to_json(path, orient="records", lines=True)
 
 
-def fingerprint(args):
+def fingerprint(output_dir, args):
     args_dict = vars(args)
-    path = f"{args.output_dir}/args.jsonl"
-    save_dict(path, args_dict)
+    args_list = [{"arg_name": k, "arg_value": v} for k, v in args_dict.items()]
+    print(args_dict)
+    path = f"{output_dir}/args.jsonl"
+    df = pd.DataFrame(args_list)
+    df.to_json(path, orient="records", lines=True)
 
 
 def get_eval_dataset():
@@ -195,7 +197,7 @@ def main(args, output_dir, small):
 if __name__ == "__main__":
     args = get_args()
     output_dir = make_output_dir(args)
-    fingerprint(args)
+    fingerprint(output_dir, args)
     set_seed(args.seed)
 
     small = False
